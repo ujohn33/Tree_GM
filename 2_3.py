@@ -30,7 +30,7 @@ from collections import defaultdict
 
 
 # probability of child with assigned value cat with a parrent with assigned value parent_cat
-def CPD(theta, node, cat, parent_cat):
+def CPD(theta, node, cat, parent_cat=None):
     if parent_cat is None:
         return theta[node][cat]
     else:
@@ -53,7 +53,7 @@ def find_children(p, topology):
     return children
 
 # if the parent is the same but the node has a different index
-def find_sibling(u, topology):
+def calculate_sibling(u, topology):
     for index, parent in enumerate(topology):
         if parent == topology[u] and u != index:
             return index
@@ -62,63 +62,59 @@ def find_sibling(u, topology):
 def calculate_likelihood(tree_topology, theta, beta):
     # initialize dictionaries for s and t
     likelihood = 0
-    S_VALUES = defaultdict(dict)
+    s_VALUES = defaultdict(dict)
     t_VALUES= defaultdict(dict)
 
-    def find_s(tree_topology, theta, beta):
+    def calculate_s(tree_topology, theta, beta):
         def subproblem_S(u, j, children):
-            if S_VALUES[u].get(j) is not None: # If it has already been calculated
-                return S_VALUES[u][j]
+            if s_VALUES[u].get(j) is not None: # If it has already been calculated
+                return s_VALUES[u].get(j)
             # Visit the vertices from leaves to root
             if len(children) < 1:           # identify leaves
                 if int(beta[u]) == j:
-                    S_VALUES[u][j] = 1
+                    s_VALUES[u][j] = 1
                     return 1
                 else:
-                    S_VALUES[u][j] = 0
+                    s_VALUES[u][j] = 0
                     return 0
             subsolution = np.zeros(len(children))
             # run down the tree solving the subproblem for children of children recursively
             for index, child in enumerate(children):
-                for category in range(0, len(theta[0])):
+                for category in range(len(theta[0])):
                     subsolution[index] += subproblem_S(child, category, find_children(child, tree_topology)) * CPD(theta, child,category, j)
             s_subsolution = np.prod(subsolution)
-            S_VALUES[u][j] = s_subsolution
+            s_VALUES[u][j] = s_subsolution
             return s_subsolution
         # Start from root and find run the subproblem for children of the root node
         for i in range(len(theta[0])):
             subproblem_S(0, i, find_children(0, tree_topology))
-        return S_VALUES
+        return s_VALUES
 
-    S_VALUES = find_s(tree_topology, theta, beta)
-    # Do the same for t, now syblings are taken into consideration
+    s_VALUES = calculate_s(tree_topology, theta, beta)
+    # Do the same for t, now siblings are taken into consideration
     def subproblem_t(u, i, parent, sibling):
         if t_VALUES[u].get(i) is not None:  # If it has already been calculated
-            return t_VALUES[u][i]
+            return t_VALUES[u].get(i)
 
         if np.isnan(parent):  # identify the root
-            return CPD(theta, u, i, None) * S_VALUES[u][i]
+            return CPD(theta, u, i)
         subsolution = 0
-        if sibling is None:  # simplified if there is no siblings
-            for j in range(0, len(theta[0])):
-                subsolution += CPD(theta, u, i, j) * t(parent, j, tree_topology[parent],subproblem_sibling(parent, tree_topology))
-                t_VALUES[u][i] = subsolution
-            return subsolution
         parent = int(parent)
-        for j in range(0, len(theta[0])):
-            for k in range(0, len(theta[0])):
-                subsolution += CPD(theta, u, i, j) * CPD(theta, sibling, k, j) * S_VALUES[sibling][k] * subproblem_t(parent,j,tree_topology[parent],find_sibling(parent,tree_topology))
+        for j in range(len(theta[0])):
+            for k in range(len(theta[0])):
+                subsolution += CPD(theta, u, i, j) * CPD(theta, sibling, k, j) * s_VALUES[sibling].get(k) * subproblem_t(parent,j,tree_topology[parent],calculate_sibling(parent,tree_topology))
         t_VALUES[u][i] = subsolution
         return subsolution
 
     # Expressing the joint
     for leaf, cat in enumerate(beta):
         if not np.isnan(cat):
-            likelihood = subproblem_t(leaf, cat, int(tree_topology[leaf]),find_sibling(leaf, tree_topology)) * S_VALUES[leaf][cat]
-    print("Calculating the likelihood...")
+            #print(beta)
+            #print(cat)
+            likelihood = subproblem_t(leaf, cat, int(tree_topology[leaf]),calculate_sibling(leaf, tree_topology)) * s_VALUES[leaf].get(cat)
+            print("Calculating the likelihood...")
     #likelihood = np.random.rand()
-
-    return likelihood
+            return likelihood
 
 
 def main():
